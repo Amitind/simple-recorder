@@ -1,0 +1,18 @@
+# Attach the srec script and its checksum to every GitHub release.
+name: release assets
+on:
+  release:
+    types: [published]
+permissions:
+  contents: write
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check that srec has the release version
+        run: grep -qx "VERSION=${GITHUB_REF_NAME#v}" srec
+      - run: sha256sum srec > SHA256SUMS
+      - run: gh release upload "$GITHUB_REF_NAME" srec SHA256SUMS --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}

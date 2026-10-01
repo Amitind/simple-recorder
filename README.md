@@ -40,10 +40,11 @@ The recording follows the window, so you can move it while you record.
 npm install -g simple-recorder
 ```
 
-Or without npm:
+Or without npm (the script from the latest release; `releases/download/v0.1.0/srec` for a fixed version,
+`SHA256SUMS` next to it to check the download):
 
 ```bash
-curl -fLo ~/.local/bin/srec https://raw.githubusercontent.com/Amitind/simple-recorder/main/srec
+curl -fLo ~/.local/bin/srec https://github.com/Amitind/simple-recorder/releases/latest/download/srec
 chmod +x ~/.local/bin/srec
 ```
 

@@ -33,6 +33,7 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Window border and on-top state are restored after recording.
 - An output file that already exists is never overwritten: srec records to `name-2.mkv` instead.
 - Fedora RPM spec in `packaging/` (build it yourself, or from COPR).
+- GitHub releases carry the `srec` script and `SHA256SUMS`.
 - Encoders: `ENCODER=auto` (default) uses h264_nvenc (NVIDIA GPU) when it works, else libx264 (CPU).
 - `SEPARATE_AUDIO=yes` also saves the mic and the system sound as their own `.m4a` files (off by default).
 
