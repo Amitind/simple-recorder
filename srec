@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2153  # settings (SPEED, FPS...) are declared from SPEC at run time
 # srec (simple-recorder): fit an app window to a video shape (16:9, 9:16, 1:1...) and record it, ready to upload.
 # Needs KDE Plasma on X11, ffmpeg, xprop, qdbus, pactl, fzf. MIT license.
 set -euo pipefail
@@ -85,7 +86,7 @@ EOF
 # Colors only on a terminal, and never when NO_COLOR is set (no-color.org)
 if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
   RED=$'\e[31m' GRN=$'\e[32m' YEL=$'\e[33m' DIM=$'\e[2m' B=$'\e[1m' R=$'\e[0m'
-else RED= GRN= YEL= DIM= B= R=; fi
+else RED='' GRN='' YEL='' DIM='' B='' R=''; fi
 die() { echo "${RED}srec: $*${R}" >&2; exit 1; }
 warn() { echo "${YEL}srec: $*${R}" >&2; }
 
@@ -114,7 +115,7 @@ set_opt() {  # key value line
 }
 
 load_config() {
-  local n=0 line sec= k v
+  local n=0 line sec='' k v
   if grep -qE '^(PRESETS=\(|[A-Z_]+=)' "$CONF"; then
     warn "$CONF is in the old format from a pre-release version. Using defaults."
     warn "Run: srec config reset (your old file is kept as config.bak)"; return
@@ -129,8 +130,10 @@ load_config() {
     case $sec:$k in
       :*) set_opt "$k" "$v" $n ;;
       -:*) ;;
-      *:window) [[ $v =~ ^[0-9]+[:x][0-9]+$ ]] && PW[$sec]=$v NEWP[$sec]=1 || warn "config line $n: window = $v, expected 16:9 or 1920x1080" ;;
-      *:video) [[ $v =~ ^[0-9]+x[0-9]+$ ]] && PV[$sec]=$v NEWP[$sec]=1 || warn "config line $n: video = $v, expected 1920x1080" ;;
+      *:window) if [[ $v =~ ^[0-9]+[:x][0-9]+$ ]]; then PW[$sec]=$v NEWP[$sec]=1
+                else warn "config line $n: window = $v, expected 16:9 or 1920x1080"; fi ;;
+      *:video) if [[ $v =~ ^[0-9]+x[0-9]+$ ]]; then PV[$sec]=$v NEWP[$sec]=1
+               else warn "config line $n: video = $v, expected 1920x1080"; fi ;;
       *) warn "config line $n: unknown preset setting '$k' (use window and video)" ;;
     esac
   done < "$CONF"
@@ -175,7 +178,7 @@ case ${1:-} in
              fi
              if [ ${#keep[@]} -gt 0 ]; then
                a=yes; [ -t 0 ] && read -rp "Keep your presets (${keep[*]})? [Y/n] " a
-               [[ ${a,,} == n* ]] && keep=() || { mine=$(my_presets "${keep[@]}"); }
+               if [[ ${a,,} == n* ]]; then keep=(); else mine=$(my_presets "${keep[@]}"); fi
              fi
              default_config > "$CONF"
              if [ ${#keep[@]} -gt 0 ]; then  # put them back under "Your presets"
@@ -204,12 +207,13 @@ esac; done; shift $((OPTIND - 1))
 # Start-up check: report every problem at once, with the reason and the install command.
 check() {
   local os pm i n problems=() pkgs=()
+  # shellcheck disable=SC1091
   os=$(. /etc/os-release 2>/dev/null; echo "${ID:-} ${ID_LIKE:-}")
   case $os in  # column in the table below
     *fedora*|*rhel*) pm="sudo dnf install" i=2 ;;
     *debian*|*ubuntu*) pm="sudo apt install" i=3 ;;
     *arch*) pm="sudo pacman -S" i=4 ;;
-    *) pm= i=2 ;;
+    *) pm='' i=2 ;;
   esac
   [ "${XDG_SESSION_TYPE:-x11}" = x11 ] ||
     problems+=("X11 session      this is $XDG_SESSION_TYPE; log out and pick \"Plasma (X11)\" on the login screen")
@@ -403,6 +407,10 @@ echo
 
 # ffmpeg writes key=value progress every 0.5 s; show it as one line that updates in place.
 start=$SECONDS
+# Terminal title shows the recording too, so it is visible from the taskbar or another tab.
+# \e[22t saves the current title, \e[23t brings it back (terminals without a title stack keep the last one).
+title() { [ -t 1 ] && printf '\e]0;%s\a' "$1"; true; }
+[ -t 1 ] && printf '\e[22;0t'
 ffmpeg -hide_banner -loglevel error -nostats -progress pipe:1 \
   -f x11grab -framerate "$FPS" -draw_mouse "$([ "$SHOW_CURSOR" = yes ] && echo 1 || echo 0)" -window_id "$WID" -i "$DISPLAY" "${a[@]}" \
   "${am[@]}" -map 0:v \
@@ -411,12 +419,13 @@ ffmpeg -hide_banner -loglevel error -nostats -progress pipe:1 \
 { trap '' INT  # Ctrl-C stops ffmpeg cleanly, like q; this loop keeps reading until ffmpeg is done
   tick=0
   while IFS='=' read -r k val; do case $k in
-    frame) frames=$val ;; drop_frames) drop=$val ;; out_time) [[ $val == -* ]] || t=${val%.*} ;;
+    frame) frames=$val ;; drop_frames) drop=$val ;; out_time) [[ $val == [0-9]* ]] && t=${val%.*} ;;
     fps) [[ $val =~ ^[0-9.]+$ ]] && fps=$val ;;
     speed) val=${val//[ x]/}; [[ $val =~ ^[0-9.]+$ ]] && speed=$val ;;
     total_size) [ "$val" = N/A ] || size=$val ;;
     progress)
       [ -t 1 ] || continue  # no live line when the output is not a terminal
+      title "● REC ${t:-00:00:00}  $app  $PRESET  $(numfmt --to=iec --suffix=B "${size:-0}")"
       tick=$((1 - tick)); dot=$RED; [ $tick = 1 ] || dot=$DIM  # the dot blinks
       # Yellow when frames are lost or the encoder falls behind real time. The first
       # 3 seconds are ignored: ffmpeg always drops a few frames while it starts.
@@ -431,6 +440,7 @@ ffmpeg -hide_banner -loglevel error -nostats -progress pipe:1 \
         "$sc" "${fps:-0}" "$R" "$dc" "${drop:-0}" "$R" "$sc" "${speed:-0}" "$R" "$DIM" "$R" ;;
   esac; done
   [ -t 1 ] && printf '\r\e[K'
+  title "srec: saved $(basename "$OUT")"; [ -t 1 ] && printf '\e[23;0t'
   [ -f "$OUT" ] || exit 1
   secs=$((SECONDS - start)) bytes=$(stat -c %s "$OUT")
   printf '  %sSaved%s  %s\n' "$GRN$B" "$R" "${OUT/#$HOME/\~}"

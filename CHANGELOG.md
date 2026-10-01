@@ -14,6 +14,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Recording screen: aligned summary of window, preset, audio, encoder and file; one live
   colored status line (blinking dot, yellow on lost frames or slow encoding); a summary at the end.
   Colors turn off with `NO_COLOR` or when the output is not a terminal.
+- Terminal title shows `● REC 00:01:23  app  preset  size` while recording, so the tab or
+  taskbar shows it too. The old title comes back when the recording ends.
 - Start-up check: lists every missing tool at once, why it is needed, and the install command
   for Fedora, Debian/Ubuntu or Arch.
 - Config file at `~/.config/simple-recorder/config` in `key = value` format with `[preset.NAME]`
