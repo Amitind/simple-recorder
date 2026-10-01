@@ -1,32 +1,27 @@
 # simple-recorder plans
 
-## Active: polish before first release
+## Active: after 0.1.0
 
-**Now (no decision needed)**
-- [x] Start-up check: lists all problems, reason, distro install line (tested with missing fzf/xprop + wayland)
-- [x] README: "What you need" table, Fedora/Debian/Arch lines, qdbus path note
-- [x] Recording screen: aligned header, blinking dot, yellow warnings after 3 s, end summary; NO_COLOR and non-tty tested
-- [x] ENCODER=auto: probes nvenc, else libx264. 7 start-up drops on nvenc, 0 after
-- [x] SEPARATE_AUDIO: <name>.mic.m4a / <name>.system.m4a via -map (tested with both)
-- [x] Terminal title during recording (push/pop title stack, tested in a pty)
-- [x] shellcheck 0.11 clean
+**Next (in order)**
+- [ ] npm publish 0.1.0: Amit runs `npm publish --otp=<code>` (account needs 2FA per publish)
+- [ ] Test on a clean Fedora with only the stock `ffmpeg-free` (no libx264; nvenc unconfirmed). If it fails, pick an encoder that it has, or say "RPM Fusion ffmpeg needed" in the spec and README
+- [ ] COPR (deferred by Amit 2026-10-01; Fedora account exists): `copr-cli` + token, `copr-cli create`, `copr-cli build`. Steps in `packaging/README.md`. Then add the `dnf copr enable` line to README Install
+- [ ] Release workflow `.github/workflows/release-assets.yml` first runs on the next release: check `srec` + `SHA256SUMS` attach
+- [ ] `design/` (logo concepts + build script, untracked): commit, gitignore or delete. Amit to decide
 
-**Decided 2026-10-01** (INI config, separate audio as files, mic in setup)
-- [x] Config: INI `key = value` + `[preset.NAME]`; parser warns with line numbers, falls back to defaults
-- [x] Config grouped Basic/Advanced, generated from one SPEC table, each line shows default
-- [x] `srec setup` wizard (fzf + read), first start on a terminal
-- [x] `srec config`, `srec config reset` (.bak kept)
-- [x] mic_device, chosen in setup with friendly names
-
-**Design**
-- [x] Round 1: concepts A/B/C. Amit kept A and B, dropped C, asked for "Simple Recorder" and no YouTube tie-in
-- [x] Picked 2026-10-01: icon A1 (square crop frame) + wordmark E (crop-name), light and dark, in `marketing/`. Logo in README header
-- [ ] Set og-light.png as the GitHub social preview after the repo exists (Settings > Social preview, by hand)
+**Release steps** (each version)
+1. Move `[Unreleased]` in CHANGELOG to `[X.Y.Z] - date`, add the compare link.
+2. `npm version X.Y.Z` (syncs `VERSION=` in srec, commits, tags). Bump `Version:` in the spec.
+3. `git push && git push --tags`, `gh release create vX.Y.Z --notes-file <changelog section>` (workflow attaches srec).
+4. `npm publish --otp=<code>`, then COPR build.
 
 ## Backlog
-- Fedora COPR: spec ready in `packaging/`. Amit makes the Fedora account + copr-cli token, then `copr-cli build`. Official Fedora repos later (review + sponsor). AUR next
+- Official Fedora repos (review + sponsor), AUR, Ubuntu PPA
 - `srec presets` to list, create, delete presets, and combos (preset + audio + fps). Your presets already work in the config
-- Separate configs per use (covered by user presets, so probably never)
 - Wayland support (wf-recorder or gpu-screen-recorder), other desktops (GNOME)
 - Live mute of mic or system sound while recording
 - Pause and resume (SIGTSTP/SIGCONT, idea from scrast)
+- Separate configs per use (covered by user presets, so probably never)
+
+## History
+- 2026-10-01 v0.1.0 released on GitHub (repo, tag, release with `srec` + `SHA256SUMS`, social preview og-light.png). Start-up check, recording screen, terminal title, encoder auto, separate audio, INI config with validation, setup wizard, config reset, your presets + edited marker, never-overwrite, Fedora RPM spec (local build tested), logo A1 + E in `marketing/`, shellcheck clean
