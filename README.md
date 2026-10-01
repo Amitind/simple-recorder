@@ -10,6 +10,10 @@ No cropping, no black bars, no editing afterwards.
 
 Command: `srec` (or the long name `simple-recorder`).
 
+[![Watch the 47-second video on YouTube](https://img.youtube.com/vi/oqeZ_hWhnB0/maxresdefault.jpg)](https://youtu.be/oqeZ_hWhnB0)
+
+Watch the [47-second video](https://youtu.be/oqeZ_hWhnB0). Full guide: [thetechbasket.com/simple-recorder](https://www.thetechbasket.com/simple-recorder/).
+
 ```
 $ srec chrome
 
