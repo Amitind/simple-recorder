@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="marketing/logo-e-cropname-dark.svg">
+  <img alt="Simple Recorder" src="marketing/logo-e-cropname.svg" width="420">
+</picture>
+
 # simple-recorder
 
 Fit an app window to a video shape (16:9, 9:16, 1:1, 4:3) and record it, ready to upload.
@@ -95,6 +100,10 @@ srec -h                    # help
 | classic | 4:3 | 1440x1080 | slides, old formats |
 | exact-1080p | 1920x1080 | 1920x1080 | no scaling (needs a free 1920x1080 area) |
 
+Your own presets go in the config under `## Your presets` and are listed first when you pick.
+A built-in preset you change shows as `edited` in the list, with its original values next to it,
+and as `(edited)` on the recording screen. `srec config reset` asks whether to keep yours.
+
 A ratio window (16:9) becomes the largest window of that shape that fits between your panels.
 The video is then scaled to the preset size. For sharp, unscaled video, use an exact size
 and set your panels to auto-hide.
@@ -128,8 +137,8 @@ no_border = yes                      # hide the title bar while recording
 keep_above = yes                     # keep the window on top while recording
 restore_after = yes                  # give both back when done
 
-## Presets
-[preset.mine]                        # add your own
+## Your presets
+[preset.mine]                        # listed first when you pick
 window = 21:9
 video  = 2560x1080
 ```

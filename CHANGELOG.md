@@ -22,6 +22,9 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - `srec setup`: step-by-step choice of preset, audio, microphone, fps, separate audio and folder.
   Runs on first start.
 - `srec config` opens the config; `srec config reset` writes a fresh one and keeps the old as `.bak`.
+- Your own presets (`## Your presets` in the config) are listed first. Changed built-in presets
+  show as "edited". `srec config reset` asks whether to keep them.
+- Logo, icon and social preview image in `marketing/` (SVG and PNG, light and dark).
 - `mic_device`: record a chosen microphone instead of the system default.
 - Window border and on-top state are restored after recording.
 - Encoders: `ENCODER=auto` (default) uses h264_nvenc (NVIDIA GPU) when it works, else libx264 (CPU).

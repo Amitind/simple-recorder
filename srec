@@ -73,8 +73,10 @@ EOF
       [ "$grp" = $g ] && printf '%-36s # %s (default: %s)\n' "$k = $d" "$cm" "$d"
     done <<<"$SPEC"
   done
-  printf '\n## Presets\n# [preset.NAME] with window = 16:9 (a ratio) or 1920x1080 (exact size), video = output size.\n'
-  printf '# Change these or add your own. Built-in presets always exist, even when deleted here.\n'
+  printf '\n## Your presets (listed first when you pick)\n'
+  printf '# [preset.NAME] with window = 16:9 (a ratio) or 1920x1080 (exact size), video = output size.\n'
+  printf '# srec config reset asks whether to keep them.\n#\n# [preset.mine]\n# window = 21:9\n# video  = 2560x1080\n'
+  printf '\n## Built-in presets\n# Changing one marks it "edited" in the list. They always exist, even when deleted here.\n'
   while IFS='|' read -r k d c cm; do
     printf '\n[preset.%s]  # %s\nwindow = %s\nvideo  = %s\n' "$k" "$cm" "$d" "$c"
   done <<<"$BUILTIN_PRESETS"
@@ -89,14 +91,14 @@ warn() { echo "${YEL}srec: $*${R}" >&2; }
 
 # Load: built-in defaults, then the config file on top. Problems are warnings, never fatal,
 # so a typo cannot stop a recording; the bad value falls back to its default.
-declare -A CHECK PW PV
-PN=()
+declare -A CHECK PW PV BW BV EDITED
+PN=() MINE=()
 add_preset() {  # name window video
   [[ " ${PN[*]} " == *" $1 "* ]] || PN+=("$1")
   PW[$1]=$2 PV[$1]=$3
 }
 while IFS='|' read -r k d c g _; do CHECK[$k]=$c; declare "${k^^}=$d"; done <<<"$SPEC"
-while IFS='|' read -r k w v _; do add_preset "$k" "$w" "$v"; done <<<"$BUILTIN_PRESETS"
+while IFS='|' read -r k w v _; do add_preset "$k" "$w" "$v"; BW[$k]=$w BV[$k]=$v; done <<<"$BUILTIN_PRESETS"
 
 set_opt() {  # key value line
   local k=$1 v=$2 c=${CHECK[$1]:-}
@@ -133,9 +135,12 @@ load_config() {
     esac
   done < "$CONF"
   for k in "${!NEWP[@]}"; do  # a new preset needs both lines
-    if [ -n "${PW[$k]:-}" ] && [ -n "${PV[$k]:-}" ]; then add_preset "$k" "${PW[$k]}" "${PV[$k]}"
-    else warn "preset '$k' needs both window and video, ignored"; fi
+    if [ -z "${PW[$k]:-}" ] || [ -z "${PV[$k]:-}" ]; then warn "preset '$k' needs both window and video, ignored"
+    elif [ -z "${BW[$k]:-}" ]; then add_preset "$k" "${PW[$k]}" "${PV[$k]}"; MINE+=("$k")
+    elif [ "${PW[$k]} ${PV[$k]}" != "${BW[$k]} ${BV[$k]}" ]; then EDITED[$k]=1; fi
   done
+  mapfile -t MINE < <(printf '%s\n' "${MINE[@]}" | sort)
+  mapfile -t PN < <(printf '%s\n' "${MINE[@]}" "${PN[@]}" | awk 'NF && !seen[$0]++')
   [ -n "${PW[$DEFAULT_PRESET]:-}" ] || { warn "default_preset = $DEFAULT_PRESET is not a preset, using youtube"; DEFAULT_PRESET=youtube; }
 }
 declare -A NEWP
@@ -147,13 +152,42 @@ set_conf() {  # key value: change one line in the config, keep its comment
     END { if (!done) print k " = " v }' "$CONF" > "$tmp" && cat "$tmp" > "$CONF"; rm -f "$tmp"
 }
 
+plabel() {  # one line per preset for the pick lists
+  local t=""
+  [[ " ${MINE[*]} " == *" $1 "* ]] && t="yours"
+  [ -n "${EDITED[$1]:-}" ] && t="edited (built-in: ${BW[$1]} ${BV[$1]})"
+  printf '%-14s window %-10s video %-10s %s' "$1" "${PW[$1]}" "${PV[$1]}" "$t"
+}
+
+my_presets() {  # the [preset.*] sections of your own and edited presets, from the current config
+  awk -v keep=" $* " '/^\[preset\./ {n = substr($1, 9, length($1) - 9); on = index(keep, " " n " ") > 0; if (on) print ""}
+    /^\[/ && !/^\[preset\./ {on = 0} /^## / {on = 0} on && NF && !/^#/' "$CONF"
+}
+
 case ${1:-} in
   config)
     case ${2:-} in
       "") exec "${VISUAL:-${EDITOR:-nano}}" "$CONF" ;;
-      reset) mkdir -p "$(dirname "$CONF")"
-             [ -f "$CONF" ] && cp "$CONF" "$CONF.bak" && echo "Old config saved as $CONF.bak"
-             default_config > "$CONF"; echo "Wrote defaults to $CONF"; exit 0 ;;
+      reset) mkdir -p "$(dirname "$CONF")"; keep=()
+             if [ -f "$CONF" ]; then
+               load_config 2>/dev/null; keep=("${MINE[@]}" "${!EDITED[@]}")
+               cp "$CONF" "$CONF.bak" && echo "Old config saved as $CONF.bak"
+             fi
+             if [ ${#keep[@]} -gt 0 ]; then
+               a=yes; [ -t 0 ] && read -rp "Keep your presets (${keep[*]})? [Y/n] " a
+               [[ ${a,,} == n* ]] && keep=() || { mine=$(my_presets "${keep[@]}"); }
+             fi
+             default_config > "$CONF"
+             if [ ${#keep[@]} -gt 0 ]; then  # put them back under "Your presets"
+               tmp=$(mktemp)
+               # drop the default copy of an edited built-in, or it would override the kept one
+               awk -v m="$mine" -v keep=" ${keep[*]} " '
+                 /^\[preset\./ {n = substr($1, 9, length($1) - 9); skip = index(keep, " " n " ") > 0}
+                 /^$/ {skip = 0} /^## Built-in/ {print m; print ""} !skip {print}' "$CONF" > "$tmp" &&
+                 cat "$tmp" > "$CONF"; rm -f "$tmp"
+               echo "Kept: ${keep[*]}"
+             fi
+             echo "Wrote defaults to $CONF"; exit 0 ;;
       *) die "unknown: srec config $2 (use: srec config, srec config reset)" ;;
     esac ;;
   setup) SETUP=1; shift ;;
@@ -222,7 +256,7 @@ pick() {  # prompt default line...: fzf list with the default first; prints the 
 setup() {
   local v l=() src
   echo "${B}simple-recorder setup${R}  ${DIM}Enter keeps the highlighted choice, Esc skips a step.${R}"
-  for v in "${PN[@]}"; do l+=("$(printf '%-14s window %-10s video %s' "$v" "${PW[$v]}" "${PV[$v]}")"); done
+  for v in "${PN[@]}"; do l+=("$(plabel "$v")"); done
   v=$(pick "Default preset" "$DEFAULT_PRESET" "${l[@]}") && set_conf default_preset "$v" && echo "  preset        $v"
   v=$(pick "Show the preset list each run?" "$ASK_PRESET" "yes   ask each time (Enter takes the default)" "no    always use the default preset") &&
     set_conf ask_preset "$v" && echo "  ask preset    $v"
@@ -271,7 +305,7 @@ WAS_ABOVE=$([[ $(xprop -id "$WID" _NET_WM_STATE) == *_NET_WM_STATE_ABOVE* ]] && 
 if [ -z "${PRESET:-}" ]; then
   PRESET=$DEFAULT_PRESET
   if [ "$ASK_PRESET" = yes ]; then
-    l=(); for p in "${PN[@]}"; do l+=("$(printf '%-14s window %-10s video %s' "$p" "${PW[$p]}" "${PV[$p]}")"); done
+    l=(); for p in "${PN[@]}"; do l+=("$(plabel "$p")"); done
     PRESET=$(pick Preset "$DEFAULT_PRESET" "${l[@]}") || exit 1
   fi
 fi
@@ -360,7 +394,7 @@ grep -q " $ENCODER " <<<"$(ffmpeg -hide_banner -encoders 2>/dev/null)" ||
 row() { printf '  %s%-8s%s %s\n' "$DIM" "$1" "$R" "$2"; }
 echo
 row Window "$CLS ${DIM}|${R} $CAP"
-row Preset "$PRESET ${DIM}window${R} $WIN ${DIM}video${R} ${OW}x${OH} ${DIM}at${R} $FPS fps"
+row Preset "$PRESET${EDITED[$PRESET]:+ ${YEL}(edited)${R}} ${DIM}window${R} $WIN ${DIM}video${R} ${OW}x${OH} ${DIM}at${R} $FPS fps"
 row Audio "$label"
 row Encoder "$enc"
 row File "${OUT/#$HOME/\~}"

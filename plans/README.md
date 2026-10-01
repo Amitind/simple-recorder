@@ -18,10 +18,11 @@
 
 **Design**
 - [x] Round 1: concepts A/B/C. Amit kept A and B, dropped C, asked for "Simple Recorder" and no YouTube tie-in
-- [ ] Round 2 in `design/`: A1 square frame (recommended), A 16:9, B srec., D [Simple Recorder], E crop-name. Amit picks, then commit design/ and use it in README, GitHub social preview, npm
+- [x] Picked 2026-10-01: icon A1 (square crop frame) + wordmark E (crop-name), light and dark, in `marketing/`. Logo in README header
+- [ ] Set og-light.png as the GitHub social preview after the repo exists (Settings > Social preview, by hand)
 
 ## Backlog
-- User presets and combos (`srec presets` to list, create, delete)
+- `srec presets` to list, create, delete presets, and combos (preset + audio + fps). Your presets already work in the config
 - Separate configs per use (covered by user presets, so probably never)
 - Wayland support (wf-recorder or gpu-screen-recorder), other desktops (GNOME)
 - Live mute of mic or system sound while recording
