@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# snugrec: fit an app window to a video shape (16:9, 9:16, 1:1...) and record it, ready to upload.
+# srec (simple-recorder): fit an app window to a video shape (16:9, 9:16, 1:1...) and record it, ready to upload.
 # Needs KDE Plasma on X11, ffmpeg, xprop, qdbus, pactl, fzf. MIT license.
 set -euo pipefail
 VERSION=0.1.0
-CONF=${XDG_CONFIG_HOME:-$HOME/.config}/snugrec/config
+CONF=${XDG_CONFIG_HOME:-$HOME/.config}/simple-recorder/config
 
 usage() { cat <<EOF
-snugrec $VERSION: fit a window to a video shape and record it.
+srec (simple-recorder) $VERSION: fit a window to a video shape and record it.
 
-Usage: snugrec [options] [app] [output-file]
+Usage: srec [options] [app] [output-file]
   app          part of a window class or title (chrome, firefox, "My Doc").
                Leave out to pick from a list.
   output-file  default: OUT_DIR/<app>-<preset>-<date-time>.<CONTAINER>
@@ -26,7 +26,7 @@ EOF
 }
 
 default_config() { cat <<'EOF'
-# snugrec config (bash syntax). Delete this file to get the defaults back.
+# simple-recorder config (bash syntax). Delete this file to get the defaults back.
 
 # Presets: "name|window|output"
 #   window: a ratio like 16:9 (largest window of that shape that fits the screen)
@@ -52,16 +52,17 @@ SPEED=veryfast        # libx264 preset: ultrafast ... veryslow
 AUDIO_BITRATE=192k
 SHOW_CURSOR=1         # 1 records the mouse pointer, 0 hides it
 
-OUT_DIR=~/Videos
+OUT_DIR=~/Videos/simple-recorder   # created if missing
 CONTAINER=mkv         # mkv survives a crash; mp4 if your editor needs it
 
 NO_BORDER=yes         # hide the title bar so only the app is recorded
-KEEP_ABOVE=yes        # keep the window on top while recording
-RESTORE_AFTER=yes     # give the border back and stop keeping on top when done
+KEEP_ABOVE=yes        # keep the window on top while recording, so other windows that you click
+                      # cannot cover it (X11 records whatever is on top of it). no: just bring it to the front
+RESTORE_AFTER=yes     # when done, give the border back and put on-top back to how it was
 EOF
 }
 
-die() { echo "snugrec: $*" >&2; exit 1; }
+die() { echo "srec: $*" >&2; exit 1; }
 
 if [ ! -f "$CONF" ]; then
   mkdir -p "$(dirname "$CONF")"; default_config > "$CONF"
@@ -94,6 +95,7 @@ fi
 WID=${list%% *}
 CLS=$(xprop -id "$WID" WM_CLASS | cut -d'"' -f4)
 CAP=$(xprop -id "$WID" _NET_WM_NAME | cut -d'"' -f2)
+WAS_ABOVE=$(xprop -id "$WID" _NET_WM_STATE | grep -q _NET_WM_STATE_ABOVE && echo true || echo false)
 
 # Pick the preset (default first, so Enter takes it)
 if [ -z "${PRESET:-}" ]; then
@@ -123,11 +125,11 @@ MATCH="String(w.resourceClass).toLowerCase() == \"${CLS,,}\" && w.caption == \"$
 kwin() {  # run JS body $1 on each window matching $2 (default MATCH); the window is w
   local js; js=$(mktemp --suffix=.js)
   printf 'for (const w of workspace.windowList()) if (%s) { %s }\n' "${2:-$MATCH}" "$1" > "$js"
-  "$QDBUS" org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript snugrec >/dev/null || true
-  local id; id=$("$QDBUS" org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "$js" snugrec)
+  "$QDBUS" org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript srec >/dev/null || true
+  local id; id=$("$QDBUS" org.kde.KWin /Scripting org.kde.kwin.Scripting.loadScript "$js" srec)
   "$QDBUS" org.kde.KWin "/Scripting/Script$id" org.kde.kwin.Script.run
   sleep 0.5
-  "$QDBUS" org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript snugrec >/dev/null; rm -f "$js"
+  "$QDBUS" org.kde.KWin /Scripting org.kde.kwin.Scripting.unloadScript srec >/dev/null; rm -f "$js"
 }
 
 yn() { [ "$1" = yes ] && echo true || echo false; }
@@ -138,7 +140,7 @@ kwin "w.minimized = false; w.setMaximize(false, false); w.fullScreen = false;
   workspace.activeWindow = w;"
 [ -n "${RESIZE_ONLY:-}" ] && exit 0
 
-[ "$RESTORE_AFTER" = yes ] && trap 'kwin "w.noBorder = false; w.keepAbove = false;" "String(w.resourceClass).toLowerCase() == \"${CLS,,}\""' EXIT  # title may change while recording
+[ "$RESTORE_AFTER" = yes ] && trap 'kwin "w.noBorder = false; w.keepAbove = $WAS_ABOVE;" "String(w.resourceClass).toLowerCase() == \"${CLS,,}\""' EXIT  # title may change while recording
 app=$(tr 'A-Z. ' 'a-z--' <<<"$CLS")
 OUT=${2:-$OUT_DIR/$app-$PRESET-$(date +%F-%H%M%S).$CONTAINER}
 mkdir -p "$(dirname "$OUT")"
@@ -146,11 +148,12 @@ mkdir -p "$(dirname "$OUT")"
 # thread_queue_size keeps audio from dropping when video encoding stalls
 mic=(-f pulse -thread_queue_size 1024 -i default)
 sys=(-f pulse -thread_queue_size 1024 -i "$(pactl get-default-sink).monitor")
+ac=(-c:a aac -b:a "$AUDIO_BITRATE")
 case $AUDIO in
   mic)  a=("${mic[@]}") af=() ;;
   sys)  a=("${sys[@]}") af=() ;;
   both) a=("${mic[@]}" "${sys[@]}") af=(-filter_complex "[1:a][2:a]amix=inputs=2:normalize=0") ;;
-  none) a=() af=() ;;
+  none) a=() af=() ac=() ;;
   *) die "AUDIO must be mic, sys, both or none" ;;
 esac
 case $ENCODER in
@@ -163,4 +166,4 @@ echo "Recording to $OUT  (press q to stop)"
 ffmpeg -hide_banner -loglevel warning -stats \
   -f x11grab -framerate "$FPS" -draw_mouse "$SHOW_CURSOR" -window_id "$WID" -i "$DISPLAY" "${a[@]}" "${af[@]}" \
   -vf "scale=$OW:$OH:flags=lanczos:force_original_aspect_ratio=decrease,pad=$OW:$OH:(ow-iw)/2:(oh-ih)/2,format=yuv420p" \
-  "${v[@]}" -c:a aac -b:a "$AUDIO_BITRATE" "$OUT"
+  "${v[@]}" "${ac[@]}" "$OUT"

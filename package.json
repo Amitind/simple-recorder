@@ -1,0 +1,16 @@
+{
+  "name": "simple-recorder",
+  "version": "0.1.0",
+  "description": "Fit an app window to a video shape (16:9, 9:16, 1:1) and record it, ready for YouTube. KDE Plasma on X11.",
+  "bin": {
+    "srec": "srec",
+    "simple-recorder": "srec"
+  },
+  "files": ["srec"],
+  "os": ["linux"],
+  "keywords": ["screen-recorder", "ffmpeg", "kde", "kwin", "x11", "youtube", "shorts", "screencast"],
+  "repository": { "type": "git", "url": "git+https://github.com/Amitind/simple-recorder.git" },
+  "homepage": "https://github.com/Amitind/simple-recorder#readme",
+  "author": "Amit Yadav",
+  "license": "MIT"
+}

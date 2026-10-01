@@ -1,31 +1,40 @@
-# snugrec
+# simple-recorder
 
 Fit an app window to a video shape (16:9, 9:16, 1:1, 4:3) and record it, ready to upload.
 No cropping, no black bars, no editing afterwards.
 
+Command: `srec` (or the long name `simple-recorder`).
+
 ```
-$ snugrec chrome
+$ srec chrome
 Window: Google-chrome | Docs - Google Chrome
 Preset: youtube (window 16:9, video 1920x1080, 60fps, audio mic)
-Recording to ~/Videos/google-chrome-youtube-2026-10-01-201500.mkv  (press q to stop)
+Recording to ~/Videos/simple-recorder/google-chrome-youtube-2026-10-01-201500.mkv  (press q to stop)
 ```
 
 ## What it does
 
-1. You pick a window: by name (`snugrec firefox`) or from a list (`snugrec`).
+1. You pick a window: by name (`srec firefox`) or from a list (`srec`).
 2. You pick a preset: YouTube, Shorts, square and others. Enter takes the default.
-3. snugrec resizes the window to the exact shape of the preset, as large as your screen allows.
-   It removes the title bar and keeps the window on top.
+3. srec resizes the window to the exact shape of the preset, as large as your screen allows.
+   It removes the title bar, brings the window to the front and keeps it on top,
+   so a window you click cannot cover the recording.
 4. ffmpeg records only that window and scales it to the video size, for example 1920x1080.
-5. Press `q` to stop. The title bar comes back.
+5. Press `q` to stop. The title bar comes back and on-top goes back to how it was.
 
 The recording follows the window, so you can move it while you record.
 
 ## Install
 
 ```bash
-curl -fLo ~/.local/bin/snugrec https://raw.githubusercontent.com/Amitind/snugrec/main/snugrec
-chmod +x ~/.local/bin/snugrec
+npm install -g simple-recorder
+```
+
+Or without npm:
+
+```bash
+curl -fLo ~/.local/bin/srec https://raw.githubusercontent.com/Amitind/simple-recorder/main/srec
+chmod +x ~/.local/bin/srec
 ```
 
 Needs: KDE Plasma on X11, `ffmpeg`, `xprop`, `qdbus` (qdbus-qt6), `pactl`, `fzf`.
@@ -38,15 +47,15 @@ sudo apt install ffmpeg x11-utils qdbus-qt6 fzf pulseaudio-utils   # Debian, Ubu
 ## Usage
 
 ```bash
-snugrec                       # pick window and preset from lists
-snugrec chrome                # window by class or title
-snugrec -p shorts discord     # preset by name, no list
-snugrec -a both chrome        # audio: mic | sys | both | none
-snugrec -f 30 chrome          # frames per second
-snugrec chrome demo.mkv       # choose the output file
-snugrec -r chrome             # resize only, do not record
-snugrec -e                    # edit the config
-snugrec -h                    # help
+srec                       # pick window and preset from lists
+srec chrome                # window by class or title
+srec -p shorts discord     # preset by name, no list
+srec -a both chrome        # audio: mic | sys | both | none
+srec -f 30 chrome          # frames per second
+srec chrome demo.mkv       # choose the output file
+srec -r chrome             # resize only, do not record
+srec -e                    # edit the config
+srec -h                    # help
 ```
 
 ## Presets
@@ -67,7 +76,7 @@ and set your panels to auto-hide.
 
 ## Config
 
-The first run creates `~/.config/snugrec/config` with comments. Open it with `snugrec -e`.
+The first run creates `~/.config/simple-recorder/config` with comments. Open it with `srec -e`.
 
 ```bash
 PRESETS=(
@@ -81,10 +90,10 @@ FPS=60
 AUDIO=mic             # mic | sys | both | none
 ENCODER=libx264       # or h264_nvenc for NVIDIA GPUs
 QUALITY=18            # lower is better and bigger
-OUT_DIR=~/Videos
+OUT_DIR=~/Videos/simple-recorder
 CONTAINER=mkv
 NO_BORDER=yes
-KEEP_ABOVE=yes
+KEEP_ABOVE=yes        # no: only bring the window to the front
 RESTORE_AFTER=yes
 ```
 
