@@ -52,7 +52,8 @@ FPS=60
 MIC=yes               # record the default microphone
 SYSTEM_AUDIO=no       # record the sound your computer plays
 ASK_AUDIO=yes         # yes: show the audio list each run (Enter picks the settings above)
-ENCODER=libx264       # libx264 (CPU) | h264_nvenc (NVIDIA GPU, less CPU)
+SEPARATE_AUDIO=no     # yes: also save each sound source as its own .m4a next to the video
+ENCODER=auto          # auto (NVIDIA GPU if it works, else CPU) | libx264 (CPU) | h264_nvenc (GPU)
 QUALITY=18            # lower is better and bigger (CRF for libx264, CQ for nvenc)
 SPEED=veryfast        # libx264 preset: ultrafast ... veryslow
 AUDIO_BITRATE=192k
@@ -68,7 +69,12 @@ RESTORE_AFTER=yes     # when done, give the border back and put on-top back to h
 EOF
 }
 
-die() { echo "srec: $*" >&2; exit 1; }
+# Colors only on a terminal, and never when NO_COLOR is set (no-color.org)
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  RED=$'\e[31m' GRN=$'\e[32m' YEL=$'\e[33m' DIM=$'\e[2m' B=$'\e[1m' R=$'\e[0m'
+else RED= GRN= YEL= DIM= B= R=; fi
+die() { echo "${RED}srec: $*${R}" >&2; exit 1; }
+warn() { echo "${YEL}srec: $*${R}" >&2; }
 
 # Built-in defaults first, then the user's config on top, so a config from an older
 # version still works when a new setting is added.
@@ -87,9 +93,51 @@ while getopts "p:a:f:rehv" o; do case $o in
   h) usage; exit 0 ;; *) usage >&2; exit 1 ;;
 esac; done; shift $((OPTIND - 1))
 
-[ "${XDG_SESSION_TYPE:-x11}" = x11 ] || die "needs an X11 session (this is $XDG_SESSION_TYPE)"
-QDBUS=$(command -v qdbus-qt6 || command -v qdbus6 || command -v qdbus) || die "qdbus not found"
-for c in ffmpeg xprop fzf pactl; do command -v $c >/dev/null || die "$c not found, please install it"; done
+# Start-up check: report every problem at once, with the reason and the install command.
+check() {
+  local os pm i n problems=() pkgs=()
+  os=$(. /etc/os-release 2>/dev/null; echo "${ID:-} ${ID_LIKE:-}")
+  case $os in  # column in the table below
+    *fedora*|*rhel*) pm="sudo dnf install" i=2 ;;
+    *debian*|*ubuntu*) pm="sudo apt install" i=3 ;;
+    *arch*) pm="sudo pacman -S" i=4 ;;
+    *) pm= i=2 ;;
+  esac
+  [ "${XDG_SESSION_TYPE:-x11}" = x11 ] ||
+    problems+=("X11 session      this is $XDG_SESSION_TYPE; log out and pick \"Plasma (X11)\" on the login screen")
+  QDBUS=$(command -v qdbus-qt6 || command -v qdbus6 || command -v /usr/lib/qt6/bin/qdbus ||
+    command -v /usr/lib64/qt6/bin/qdbus || command -v qdbus || true)
+  # command | why | Fedora | Debian/Ubuntu | Arch
+  while IFS='|' read -r -a n; do
+    if [ "${n[0]}" = qdbus ]; then [ -n "$QDBUS" ] && continue; else command -v "${n[0]}" >/dev/null && continue; fi
+    problems+=("$(printf '%-16s %s' "${n[0]}" "${n[1]}")"); pkgs+=("${n[$i]}")
+  done <<'T'
+ffmpeg|records and encodes the video|ffmpeg|ffmpeg|ffmpeg
+xprop|lists the open windows|xprop|x11-utils|xorg-xprop
+qdbus|asks KWin to resize the window|qt6-qttools|qdbus-qt6|qt6-tools
+fzf|shows the pick lists|fzf|fzf|fzf
+pactl|finds the system sound device|pulseaudio-utils|pulseaudio-utils|libpulse
+T
+  if [ -n "$QDBUS" ] && ! "$QDBUS" org.kde.KWin /KWin >/dev/null 2>&1; then
+    problems+=("KWin             not reachable over D-Bus; srec needs the KDE Plasma desktop")
+  fi
+  if command -v ffmpeg >/dev/null; then
+    FF_DEV=$(ffmpeg -hide_banner -devices 2>/dev/null)
+    grep -q x11grab <<<"$FF_DEV" || problems+=("ffmpeg x11grab   this ffmpeg cannot capture the screen; install a full ffmpeg build")
+    grep -q pulse <<<"$FF_DEV" || problems+=("ffmpeg pulse     this ffmpeg cannot record sound; install a full ffmpeg build")
+  fi
+  [ ${#problems[@]} -eq 0 ] && return
+  echo "${RED}${B}srec cannot start${R}" >&2
+  printf '  %s\n' "${problems[@]}" >&2
+  if [ ${#pkgs[@]} -gt 0 ]; then
+    if [ -n "$pm" ]; then echo "Install: $pm ${pkgs[*]}" >&2
+    else echo "Install these with your package manager: ${pkgs[*]} (names differ per distro)" >&2; fi
+  fi
+  [[ $os == *fedora* ]] && [[ " ${pkgs[*]} " == *" ffmpeg "* ]] &&
+    echo "Fedora: the full ffmpeg (with H.264) comes from RPM Fusion: https://rpmfusion.org/Configuration" >&2
+  exit 1
+}
+check
 
 # Pick the window: "0xID  class | title"
 list=$(for w in $(xprop -root _NET_CLIENT_LIST | grep -o '0x[0-9a-f]*'); do
@@ -138,8 +186,6 @@ if [ -z "${AUDIO:-}" ]; then
       fzf --height=40% --reverse --prompt="Audio> " | cut -d' ' -f1) || exit 1
   fi
 fi
-echo "Window: $CLS | $CAP"
-echo "Preset: $PRESET (window $WIN, video ${OW}x${OH}, ${FPS}fps, audio $AUDIO)"
 
 # KWin JS has no X11 id, so windows are matched by class + title.
 # ponytail: two same-titled windows of one app both match
@@ -172,33 +218,81 @@ mkdir -p "$(dirname "$OUT")"
 mic=(-f pulse -thread_queue_size 1024 -i default)
 sys=(-f pulse -thread_queue_size 1024 -i "$(pactl get-default-sink).monitor")
 ac=(-c:a aac -b:a "$AUDIO_BITRATE")
+# Inputs: 0 = window, then the audio sources in the order below
 case $AUDIO in
-  mic)  a=("${mic[@]}") af=() ;;
-  sys)  a=("${sys[@]}") af=() ;;
-  both) a=("${mic[@]}" "${sys[@]}") af=(-filter_complex "[1:a][2:a]amix=inputs=2:normalize=0") ;;
-  none) a=() af=() ac=() ;;
-  *) die "AUDIO must be mic, sys, both or none" ;;
+  mic)  a=("${mic[@]}") src=(mic) am=(-map 1:a) label="microphone" ;;
+  sys)  a=("${sys[@]}") src=(system) am=(-map 1:a) label="system sound" ;;
+  both) a=("${mic[@]}" "${sys[@]}") src=(mic system) label="microphone + system sound"
+        am=(-filter_complex "[1:a][2:a]amix=inputs=2:normalize=0[a]" -map "[a]") ;;
+  none) a=() src=() am=() ac=() label="none" ;;
+  *) die "audio must be mic, sys, both or none (got '$AUDIO')" ;;
 esac
-case $ENCODER in
-  libx264)    v=(-c:v libx264 -preset "$SPEED" -crf "$QUALITY") ;;
-  h264_nvenc) v=(-c:v h264_nvenc -preset p5 -rc vbr -cq "$QUALITY" -b:v 0) ;;
-  *) die "ENCODER must be libx264 or h264_nvenc" ;;
-esac
+# Each source also in its own file next to the video, to mix later in an editor
+extra=() files=()
+if [ "$SEPARATE_AUDIO" = yes ]; then
+  for i in "${!src[@]}"; do
+    files+=("${OUT%.*}.${src[$i]}.m4a")
+    extra+=(-map "$((i + 1)):a" -c:a aac -b:a "$AUDIO_BITRATE" "${files[-1]}")
+  done
+fi
 
-echo "Recording to $OUT"
-echo "Press q to stop."
-# ffmpeg writes key=value progress every 0.5 s; show it as one line that updates in place.
-ffmpeg -hide_banner -loglevel error -nostats -progress pipe:1 \
-  -f x11grab -framerate "$FPS" -draw_mouse "$SHOW_CURSOR" -window_id "$WID" -i "$DISPLAY" "${a[@]}" "${af[@]}" \
-  -vf "scale=$OW:$OH:flags=lanczos:force_original_aspect_ratio=decrease,pad=$OW:$OH:(ow-iw)/2:(oh-ih)/2,format=yuv420p" \
-  "${v[@]}" "${ac[@]}" "$OUT" |
-{ trap '' INT  # Ctrl-C stops ffmpeg cleanly, like q; this loop keeps reading until ffmpeg is done
-while IFS='=' read -r k val; do case $k in
-  frame) frames=$val ;; fps) fps=$val ;; drop_frames) drop=$val ;; speed) speed=${val// /} ;;
-  total_size) [ "$val" = N/A ] || size=$(numfmt --to=iec --suffix=B "$val") ;;
-  out_time) t=${val%.*} ;;
-  progress) printf '\r\033[K\033[31m●\033[0m REC %s  %s  %s fps  %s frames  %s dropped  %s' \
-    "${t:-00:00:00}" "${size:-0B}" "${fps:-0}" "${frames:-0}" "${drop:-0}" "${speed:-}" ;;
-esac; done; } || true  # ffmpeg exits 255 on Ctrl-C; the file is still complete
+if [ "$ENCODER" = auto ]; then  # GPU encoder if it really works here, else CPU
+  ffmpeg -hide_banner -v error -f lavfi -i color=s=256x256 -frames:v 1 -c:v h264_nvenc -f null - 2>/dev/null &&
+    ENCODER=h264_nvenc || ENCODER=libx264
+fi
+case $ENCODER in
+  libx264)    v=(-c:v libx264 -preset "$SPEED" -crf "$QUALITY") enc="libx264 (CPU, $SPEED)" ;;
+  h264_nvenc) v=(-c:v h264_nvenc -preset p5 -rc vbr -cq "$QUALITY" -b:v 0) enc="h264_nvenc (NVIDIA GPU)" ;;
+  *) die "ENCODER must be auto, libx264 or h264_nvenc (got '$ENCODER')" ;;
+esac
+grep -q " $ENCODER " <<<"$(ffmpeg -hide_banner -encoders 2>/dev/null)" ||
+  die "this ffmpeg has no $ENCODER encoder. Set ENCODER=auto in $CONF, or install a full ffmpeg build"
+
+row() { printf '  %s%-8s%s %s\n' "$DIM" "$1" "$R" "$2"; }
 echo
-[ -f "$OUT" ] && echo "Saved $OUT ($(du -h "$OUT" | cut -f1))"
+row Window "$CLS ${DIM}|${R} $CAP"
+row Preset "$PRESET ${DIM}window${R} $WIN ${DIM}video${R} ${OW}x${OH} ${DIM}at${R} $FPS fps"
+row Audio "$label"
+row Encoder "$enc"
+row File "${OUT/#$HOME/\~}"
+for f in "${files[@]}"; do row "" "${f/#$HOME/\~}"; done
+echo
+
+# ffmpeg writes key=value progress every 0.5 s; show it as one line that updates in place.
+start=$SECONDS
+ffmpeg -hide_banner -loglevel error -nostats -progress pipe:1 \
+  -f x11grab -framerate "$FPS" -draw_mouse "$SHOW_CURSOR" -window_id "$WID" -i "$DISPLAY" "${a[@]}" \
+  "${am[@]}" -map 0:v \
+  -vf "scale=$OW:$OH:flags=lanczos:force_original_aspect_ratio=decrease,pad=$OW:$OH:(ow-iw)/2:(oh-ih)/2,format=yuv420p" \
+  "${v[@]}" "${ac[@]}" "$OUT" "${extra[@]}" |
+{ trap '' INT  # Ctrl-C stops ffmpeg cleanly, like q; this loop keeps reading until ffmpeg is done
+  tick=0
+  while IFS='=' read -r k val; do case $k in
+    frame) frames=$val ;; drop_frames) drop=$val ;; out_time) [[ $val == -* ]] || t=${val%.*} ;;
+    fps) [[ $val =~ ^[0-9.]+$ ]] && fps=$val ;;
+    speed) val=${val//[ x]/}; [[ $val =~ ^[0-9.]+$ ]] && speed=$val ;;
+    total_size) [ "$val" = N/A ] || size=$val ;;
+    progress)
+      [ -t 1 ] || continue  # no live line when the output is not a terminal
+      tick=$((1 - tick)); dot=$RED; [ $tick = 1 ] || dot=$DIM  # the dot blinks
+      # Yellow when frames are lost or the encoder falls behind real time. The first
+      # 3 seconds are ignored: ffmpeg always drops a few frames while it starts.
+      dc=$R sc=$R
+      if [ "${frames:-0}" -gt $((FPS * 3)) ]; then
+        : "${drop0:=${drop:-0}}"
+        [ "${drop:-0}" -gt "$drop0" ] && dc=$YEL
+        [ "$(awk -v s="${speed:-1}" 'BEGIN{print (s < 0.95)}')" = 1 ] && sc=$YEL
+      fi
+      printf '\r\e[K  %s●%s %sREC%s  %s  %8s  %s%5.1f fps%s  %s%s dropped%s  %s%5.2fx%s   %sq to stop%s' \
+        "$dot" "$R" "$B" "$R" "${t:-00:00:00}" "$(numfmt --to=iec --suffix=B "${size:-0}")" \
+        "$sc" "${fps:-0}" "$R" "$dc" "${drop:-0}" "$R" "$sc" "${speed:-0}" "$R" "$DIM" "$R" ;;
+  esac; done
+  [ -t 1 ] && printf '\r\e[K'
+  [ -f "$OUT" ] || exit 1
+  secs=$((SECONDS - start)) bytes=$(stat -c %s "$OUT")
+  printf '  %sSaved%s  %s\n' "$GRN$B" "$R" "${OUT/#$HOME/\~}"
+  for f in "${files[@]}"; do [ -f "$f" ] && printf '         %s\n' "${f/#$HOME/\~}"; done
+  printf '  %s%02d:%02d:%02d   %s   %s/s average   %s of %s frames dropped%s\n' "$DIM" $((secs / 3600)) $((secs / 60 % 60)) $((secs % 60)) \
+    "$(numfmt --to=iec --suffix=B "$bytes")" "$(numfmt --to=si --suffix=bit $((bytes * 8 / (secs > 0 ? secs : 1))))" \
+    "${drop:-0}" "${frames:-0}" "$R"
+} || { [ -f "$OUT" ] || die "recording failed, no file was written"; }  # ffmpeg exits 255 on Ctrl-C; the file is still complete

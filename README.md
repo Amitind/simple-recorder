@@ -7,9 +7,14 @@ Command: `srec` (or the long name `simple-recorder`).
 
 ```
 $ srec chrome
-Window: Google-chrome | Docs - Google Chrome
-Preset: youtube (window 16:9, video 1920x1080, 60fps, audio mic)
-Recording to ~/Videos/simple-recorder/google-chrome-youtube-2026-10-01-201500.mkv  (press q to stop)
+
+  Window   google-chrome | Docs - Google Chrome
+  Preset   youtube window 16:9 video 1920x1080 at 60 fps
+  Audio    microphone
+  Encoder  h264_nvenc (NVIDIA GPU)
+  File     ~/Videos/simple-recorder/google-chrome-youtube-2026-10-01-201500.mkv
+
+  ● REC  00:01:12    18MB   60.0 fps  7 dropped   1.00x   q to stop
 ```
 
 ## What it does
@@ -37,12 +42,30 @@ curl -fLo ~/.local/bin/srec https://raw.githubusercontent.com/Amitind/simple-rec
 chmod +x ~/.local/bin/srec
 ```
 
-Needs: KDE Plasma on X11, `ffmpeg`, `xprop`, `qdbus` (qdbus-qt6), `pactl`, `fzf`.
+## What you need
+
+| Need | Why | Fedora | Debian, Ubuntu | Arch |
+|---|---|---|---|---|
+| KDE Plasma 6 on X11 | KWin resizes the window; X11 lets ffmpeg record one window | | | |
+| `ffmpeg` with x11grab and pulse | records and encodes | `ffmpeg` (RPM Fusion) | `ffmpeg` | `ffmpeg` |
+| `xprop` | lists the open windows | `xprop` | `x11-utils` | `xorg-xprop` |
+| `qdbus` | sends the resize script to KWin | `qt6-qttools` | `qdbus-qt6` | `qt6-tools` |
+| `fzf` | the pick lists | `fzf` | `fzf` | `fzf` |
+| `pactl` | finds the system sound device | `pulseaudio-utils` | `pulseaudio-utils` | `libpulse` |
 
 ```bash
-sudo dnf install ffmpeg xprop qt6-qttools fzf pulseaudio-utils     # Fedora
-sudo apt install ffmpeg x11-utils qdbus-qt6 fzf pulseaudio-utils   # Debian, Ubuntu
+sudo dnf install ffmpeg xprop qt6-qttools fzf pulseaudio-utils      # Fedora (ffmpeg from RPM Fusion)
+sudo apt install ffmpeg x11-utils qdbus-qt6 fzf pulseaudio-utils    # Debian, Ubuntu
+sudo pacman -S ffmpeg xorg-xprop qt6-tools fzf libpulse             # Arch
 ```
+
+- Wayland does not work yet. On the login screen, pick "Plasma (X11)".
+- PipeWire works too (through its PulseAudio layer, the default on current distros).
+- On Fedora, the stock `ffmpeg-free` has no libx264. Install `ffmpeg` from
+  [RPM Fusion](https://rpmfusion.org/Configuration) (`sudo dnf swap ffmpeg-free ffmpeg --allowerasing`).
+- Debian and Ubuntu put qdbus at `/usr/lib/qt6/bin/qdbus`. srec finds it there.
+
+If something is missing, srec lists every problem at once with the install command for your distro.
 
 ## Usage
 
@@ -90,7 +113,8 @@ FPS=60
 MIC=yes               # microphone
 SYSTEM_AUDIO=no       # sound your computer plays
 ASK_AUDIO=yes         # show the audio list each run
-ENCODER=libx264       # or h264_nvenc for NVIDIA GPUs
+SEPARATE_AUDIO=no     # yes: also save mic and system sound as their own .m4a files
+ENCODER=auto          # NVIDIA GPU if it works, else libx264 (CPU)
 QUALITY=18            # lower is better and bigger
 OUT_DIR=~/Videos/simple-recorder
 CONTAINER=mkv
@@ -100,6 +124,13 @@ RESTORE_AFTER=yes
 ```
 
 Delete the file to get the defaults back.
+
+## Smooth recording
+
+- `ENCODER=auto` uses the NVIDIA GPU encoder when it works, which leaves the CPU free for the app.
+- ffmpeg drops a few frames (about 5 to 20) while it starts. After that, the dropped count
+  turns yellow if more frames are lost, and the speed turns yellow below 0.95x.
+- With no audio, the file has no audio track at all.
 
 ## Limits
 
