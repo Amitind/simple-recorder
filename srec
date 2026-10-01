@@ -9,64 +9,75 @@ usage() { cat <<EOF
 srec (simple-recorder) $VERSION: fit a window to a video shape and record it.
 
 Usage: srec [options] [app] [output-file]
+       srec setup           choose your defaults step by step
+       srec config          open the config file in \$EDITOR
+       srec config reset    write a fresh config with all defaults (old one kept as .bak)
+
   app          part of a window class or title (chrome, firefox, "My Doc").
                Leave out to pick from a list.
-  output-file  default: OUT_DIR/<app>-<preset>-<date-time>.<CONTAINER>
+  output-file  default: out_dir/<app>-<preset>-<date-time>.<container>
 
 Options:
   -p NAME   preset (see config). Leave out to pick from a list.
   -a MODE   audio: mic | sys | both | none (sys is the sound your computer plays)
   -f FPS    frames per second
   -r        resize the window only, do not record
-  -e        open the config file in \$EDITOR
+  -v        version
   -h        this help
 
-Press q to stop recording. Config: $CONF
+Press q (or Ctrl-C) to stop recording. Config: $CONF
 EOF
 }
 
-default_config() { cat <<'EOF'
-# simple-recorder config (bash syntax).
-# Every setting has a built-in default. Keep only the lines you change, or delete this
-# file to get a fresh copy with all defaults.
+# Every setting: key|default|check|group|comment. The config file is generated from this,
+# and each value in it is checked against it.
+SPEC='default_preset|youtube|preset|basic|preset used when you press Enter (see [preset.*] below)
+ask_preset|yes|bool|basic|show the preset list each run
+fps|60|int:1:240|basic|frames per second
+mic|yes|bool|basic|record the microphone
+system_audio|no|bool|basic|record the sound your computer plays (apps, videos, music)
+ask_audio|yes|bool|basic|show the audio list each run
+out_dir|~/Videos/simple-recorder|text|basic|where videos are saved (created if missing)
+mic_device|default|text|advanced|default, or a source name from: pactl list short sources
+separate_audio|no|bool|advanced|also save each sound source as its own .m4a next to the video
+encoder|auto|enum:auto libx264 h264_nvenc|advanced|auto: NVIDIA GPU if it works, else libx264 (CPU)
+quality|18|int:0:51|advanced|lower is better and bigger (CRF for libx264, CQ for nvenc)
+speed|veryfast|enum:ultrafast superfast veryfast faster fast medium slow slower veryslow|advanced|libx264 only: slower gives smaller files, uses more CPU
+audio_bitrate|192k|re:^[0-9]+k$|advanced|AAC bitrate
+show_cursor|yes|bool|advanced|record the mouse pointer
+container|mkv|enum:mkv mp4 mov|advanced|mkv survives a crash; mp4 if your editor needs it
+no_border|yes|bool|advanced|hide the title bar so only the app is recorded
+keep_above|yes|bool|advanced|keep the window on top so other windows cannot cover the recording
+restore_after|yes|bool|advanced|after recording, give back the title bar and the on-top state'
+# Built-in presets: name|window|video|comment. window is a ratio (largest window of that
+# shape that fits the screen) or an exact size; video is the size in the file.
+BUILTIN_PRESETS='youtube|16:9|1920x1080|YouTube, most video sites
+youtube-4k|16:9|3840x2160|YouTube 4K
+youtube-720p|16:9|1280x720|smaller files
+shorts|9:16|1080x1920|YouTube Shorts, Instagram Reels, TikTok
+square|1:1|1080x1080|Instagram, X posts
+classic|4:3|1440x1080|slides, old formats
+exact-1080p|1920x1080|1920x1080|no scaling; needs free space (auto-hide panels)'
 
-# Presets: "name|window|output"
-#   window: a ratio like 16:9 (largest window of that shape that fits the screen)
-#           or an exact size like 1920x1080
-#   output: video size in the file. The window is scaled to it.
-PRESETS=(
-  "youtube|16:9|1920x1080"
-  "youtube-4k|16:9|3840x2160"
-  "youtube-720p|16:9|1280x720"
-  "shorts|9:16|1080x1920"        # YouTube Shorts, Instagram Reels, TikTok
-  "square|1:1|1080x1080"         # Instagram, X posts
-  "classic|4:3|1440x1080"
-  "exact-1080p|1920x1080|1920x1080"  # no scaling; needs space (auto-hide panels)
-)
-DEFAULT_PRESET=youtube
-ASK_PRESET=yes        # yes: show the preset list each run (Enter picks the default)
-
-FPS=60
-
-# Audio: the mic and the system sound (what you hear: app, video, music) are separate.
-MIC=yes               # record the default microphone
-SYSTEM_AUDIO=no       # record the sound your computer plays
-ASK_AUDIO=yes         # yes: show the audio list each run (Enter picks the settings above)
-SEPARATE_AUDIO=no     # yes: also save each sound source as its own .m4a next to the video
-ENCODER=auto          # auto (NVIDIA GPU if it works, else CPU) | libx264 (CPU) | h264_nvenc (GPU)
-QUALITY=18            # lower is better and bigger (CRF for libx264, CQ for nvenc)
-SPEED=veryfast        # libx264 preset: ultrafast ... veryslow
-AUDIO_BITRATE=192k
-SHOW_CURSOR=1         # 1 records the mouse pointer, 0 hides it
-
-OUT_DIR=~/Videos/simple-recorder   # created if missing
-CONTAINER=mkv         # mkv survives a crash; mp4 if your editor needs it
-
-NO_BORDER=yes         # hide the title bar so only the app is recorded
-KEEP_ABOVE=yes        # keep the window on top while recording, so other windows that you click
-                      # cannot cover it (X11 records whatever is on top of it). no: just bring it to the front
-RESTORE_AFTER=yes     # when done, give the border back and put on-top back to how it was
+default_config() {
+  local k d c g cm
+  cat <<'EOF'
+# simple-recorder config
+# Format: key = value. A # starts a comment. Each line shows its default.
+# srec setup: choose the main settings step by step
+# srec config reset: start again from this file
 EOF
+  for g in basic advanced; do
+    printf '\n## %s\n' "$([ $g = basic ] && echo Basic || echo "Advanced (most people never change these)")"
+    while IFS='|' read -r k d c grp cm; do
+      [ "$grp" = $g ] && printf '%-36s # %s (default: %s)\n' "$k = $d" "$cm" "$d"
+    done <<<"$SPEC"
+  done
+  printf '\n## Presets\n# [preset.NAME] with window = 16:9 (a ratio) or 1920x1080 (exact size), video = output size.\n'
+  printf '# Change these or add your own. Built-in presets always exist, even when deleted here.\n'
+  while IFS='|' read -r k d c cm; do
+    printf '\n[preset.%s]  # %s\nwindow = %s\nvideo  = %s\n' "$k" "$cm" "$d" "$c"
+  done <<<"$BUILTIN_PRESETS"
 }
 
 # Colors only on a terminal, and never when NO_COLOR is set (no-color.org)
@@ -76,21 +87,84 @@ else RED= GRN= YEL= DIM= B= R=; fi
 die() { echo "${RED}srec: $*${R}" >&2; exit 1; }
 warn() { echo "${YEL}srec: $*${R}" >&2; }
 
-# Built-in defaults first, then the user's config on top, so a config from an older
-# version still works when a new setting is added.
-# shellcheck source=/dev/null
-source <(default_config)
-if [ ! -f "$CONF" ]; then
-  mkdir -p "$(dirname "$CONF")"; default_config > "$CONF"
-  echo "Created config with defaults: $CONF"
-fi
-# shellcheck source=/dev/null
-source "$CONF"
+# Load: built-in defaults, then the config file on top. Problems are warnings, never fatal,
+# so a typo cannot stop a recording; the bad value falls back to its default.
+declare -A CHECK PW PV
+PN=()
+add_preset() {  # name window video
+  [[ " ${PN[*]} " == *" $1 "* ]] || PN+=("$1")
+  PW[$1]=$2 PV[$1]=$3
+}
+while IFS='|' read -r k d c g _; do CHECK[$k]=$c; declare "${k^^}=$d"; done <<<"$SPEC"
+while IFS='|' read -r k w v _; do add_preset "$k" "$w" "$v"; done <<<"$BUILTIN_PRESETS"
 
-while getopts "p:a:f:rehv" o; do case $o in
+set_opt() {  # key value line
+  local k=$1 v=$2 c=${CHECK[$1]:-}
+  [ -n "$c" ] || { warn "config line $3: unknown setting '$k', ignored (old or misspelled? srec config reset lists all)"; return; }
+  case $c in
+    bool) case ${v,,} in yes|true|on|1) v=yes ;; no|false|off|0) v=no ;; *) c="yes or no" ;; esac ;;
+    int:*) IFS=: read -r _ lo hi <<<"$c"; [[ $v =~ ^[0-9]+$ ]] && ((v >= lo && v <= hi)) && c=ok || c="a number from $lo to $hi" ;;
+    enum:*) [[ " ${c#enum:} " == *" $v "* ]] && c=ok || c="one of: ${c#enum:}" ;;
+    re:*) [[ $v =~ ${c#re:} ]] && c=ok || c="like $(sed -n "s/^$k|\([^|]*\)|.*/\1/p" <<<"$SPEC")" ;;
+  esac
+  case $c in bool|int:*|enum:*|re:*|ok|text|preset) declare -g "${k^^}=$v" ;;
+    *) warn "config line $3: $k = $v is not valid, expected $c. Using the default." ;; esac
+}
+
+load_config() {
+  local n=0 line sec= k v
+  if grep -qE '^(PRESETS=\(|[A-Z_]+=)' "$CONF"; then
+    warn "$CONF is in the old format from a pre-release version. Using defaults."
+    warn "Run: srec config reset (your old file is kept as config.bak)"; return
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    n=$((n + 1)); line=${line%%#*}
+    [[ $line =~ ^[[:space:]]*(.*[^[:space:]])[[:space:]]*$ ]] || continue; line=${BASH_REMATCH[1]}
+    if [[ $line =~ ^\[preset\.([A-Za-z0-9_-]+)\]$ ]]; then sec=${BASH_REMATCH[1]}; continue
+    elif [[ $line == \[* ]]; then warn "config line $n: unknown section $line, ignored"; sec=-; continue; fi
+    [[ $line =~ ^([A-Za-z_]+)[[:space:]]*=[[:space:]]*(.*)$ ]] || { warn "config line $n: expected 'key = value', got: $line"; continue; }
+    k=${BASH_REMATCH[1],,} v=${BASH_REMATCH[2]}
+    case $sec:$k in
+      :*) set_opt "$k" "$v" $n ;;
+      -:*) ;;
+      *:window) [[ $v =~ ^[0-9]+[:x][0-9]+$ ]] && PW[$sec]=$v NEWP[$sec]=1 || warn "config line $n: window = $v, expected 16:9 or 1920x1080" ;;
+      *:video) [[ $v =~ ^[0-9]+x[0-9]+$ ]] && PV[$sec]=$v NEWP[$sec]=1 || warn "config line $n: video = $v, expected 1920x1080" ;;
+      *) warn "config line $n: unknown preset setting '$k' (use window and video)" ;;
+    esac
+  done < "$CONF"
+  for k in "${!NEWP[@]}"; do  # a new preset needs both lines
+    if [ -n "${PW[$k]:-}" ] && [ -n "${PV[$k]:-}" ]; then add_preset "$k" "${PW[$k]}" "${PV[$k]}"
+    else warn "preset '$k' needs both window and video, ignored"; fi
+  done
+  [ -n "${PW[$DEFAULT_PRESET]:-}" ] || { warn "default_preset = $DEFAULT_PRESET is not a preset, using youtube"; DEFAULT_PRESET=youtube; }
+}
+declare -A NEWP
+
+set_conf() {  # key value: change one line in the config, keep its comment
+  local tmp; tmp=$(mktemp)
+  awk -v k="$1" -v v="$2" '$1 == k && $2 == "=" && !done {
+      c = index($0, "#"); printf "%-36s %s\n", k " = " v, (c ? substr($0, c) : ""); done = 1; next } { print }
+    END { if (!done) print k " = " v }' "$CONF" > "$tmp" && cat "$tmp" > "$CONF"; rm -f "$tmp"
+}
+
+case ${1:-} in
+  config)
+    case ${2:-} in
+      "") exec "${VISUAL:-${EDITOR:-nano}}" "$CONF" ;;
+      reset) mkdir -p "$(dirname "$CONF")"
+             [ -f "$CONF" ] && cp "$CONF" "$CONF.bak" && echo "Old config saved as $CONF.bak"
+             default_config > "$CONF"; echo "Wrote defaults to $CONF"; exit 0 ;;
+      *) die "unknown: srec config $2 (use: srec config, srec config reset)" ;;
+    esac ;;
+  setup) SETUP=1; shift ;;
+esac
+if [ -f "$CONF" ]; then load_config
+else mkdir -p "$(dirname "$CONF")"; default_config > "$CONF"; [ -t 0 ] && [ -t 1 ] && : "${SETUP:=first}"; fi
+OUT_DIR=${OUT_DIR/#\~/$HOME}
+
+while getopts "p:a:f:rhv" o; do case $o in
   p) PRESET=$OPTARG ;; a) AUDIO=$OPTARG ASK_AUDIO=no ;; f) FPS=$OPTARG ;; r) RESIZE_ONLY=1 ;;
-  e) exec "${EDITOR:-nano}" "$CONF" ;; v) echo "$VERSION"; exit 0 ;;
-  h) usage; exit 0 ;; *) usage >&2; exit 1 ;;
+  v) echo "$VERSION"; exit 0 ;; h) usage; exit 0 ;; *) usage >&2; exit 1 ;;
 esac; done; shift $((OPTIND - 1))
 
 # Start-up check: report every problem at once, with the reason and the install command.
@@ -139,6 +213,44 @@ T
 }
 check
 
+pick() {  # prompt default line...: fzf list with the default first; prints the first word
+  local p=$1 d=$2; shift 2
+  printf '%s\n' "$@" | awk -v d="$d" '$1 == d {print; next} {r = r $0 "\n"} END {printf "%s", r}' |
+    fzf --height=40% --reverse --prompt="$p> " | cut -d' ' -f1
+}
+
+setup() {
+  local v l=() src
+  echo "${B}simple-recorder setup${R}  ${DIM}Enter keeps the highlighted choice, Esc skips a step.${R}"
+  for v in "${PN[@]}"; do l+=("$(printf '%-14s window %-10s video %s' "$v" "${PW[$v]}" "${PV[$v]}")"); done
+  v=$(pick "Default preset" "$DEFAULT_PRESET" "${l[@]}") && set_conf default_preset "$v" && echo "  preset        $v"
+  v=$(pick "Show the preset list each run?" "$ASK_PRESET" "yes   ask each time (Enter takes the default)" "no    always use the default preset") &&
+    set_conf ask_preset "$v" && echo "  ask preset    $v"
+  local a=none; [ "$MIC" = yes ] && a=mic; [ "$SYSTEM_AUDIO" = yes ] && { [ $a = mic ] && a=both || a=sys; }
+  v=$(pick "Default audio" "$a" "mic   microphone only" "both  microphone + system sound" \
+    "sys   system sound only (apps, videos, music)" "none  no audio (smallest file)") && {
+    set_conf mic "$([[ $v == mic || $v == both ]] && echo yes || echo no)"
+    set_conf system_audio "$([[ $v == sys || $v == both ]] && echo yes || echo no)"; echo "  audio         $v"; }
+  if [[ ${v:-$a} == mic || ${v:-$a} == both ]]; then
+    mapfile -t src < <(LC_ALL=C pactl list sources 2>/dev/null |
+      awk -F': ' '/^\tName: /{n = $2} /^\tDescription: / && n !~ /\.monitor$/ {print n "   " $2}')
+    v=$(pick "Microphone" "$MIC_DEVICE" "default   whatever the system uses" "${src[@]}") &&
+      set_conf mic_device "$v" && echo "  microphone    $v"
+  fi
+  v=$(pick "Show the audio list each run?" "$ASK_AUDIO" "yes   ask each time" "no    always use the default audio") &&
+    set_conf ask_audio "$v" && echo "  ask audio     $v"
+  v=$(pick "Frames per second" "$FPS" "60    smooth motion, scrolling, games" "30    talks and slides, smaller files" "24    film look") &&
+    set_conf fps "$v" && echo "  fps           $v"
+  v=$(pick "Also save each sound source as its own file, to mix later?" "$SEPARATE_AUDIO" \
+    "no    one video file" "yes   video plus .mic.m4a and .system.m4a") && set_conf separate_audio "$v" && echo "  separate      $v"
+  read -rep "Save videos in: " -i "${OUT_DIR/#$HOME/\~}" v && [ -n "$v" ] && set_conf out_dir "$v" && echo "  folder        $v"
+  echo "${GRN}Saved${R} $CONF  ${DIM}(all settings: srec config)${R}"
+  load_config; OUT_DIR=${OUT_DIR/#\~/$HOME}
+}
+if [ "${SETUP:-}" = first ]; then
+  echo "First run: choose your defaults. You can change them later with srec setup."; setup; echo
+elif [ -n "${SETUP:-}" ]; then setup; exit 0; fi
+
 # Pick the window: "0xID  class | title"
 list=$(for w in $(xprop -root _NET_CLIENT_LIST | grep -o '0x[0-9a-f]*'); do
   c=$(xprop -id "$w" WM_CLASS | cut -d'"' -f4)
@@ -153,19 +265,18 @@ fi
 WID=${list%% *}
 CLS=$(xprop -id "$WID" WM_CLASS | cut -d'"' -f4)
 CAP=$(xprop -id "$WID" _NET_WM_NAME | cut -d'"' -f2)
-WAS_ABOVE=$(xprop -id "$WID" _NET_WM_STATE | grep -q _NET_WM_STATE_ABOVE && echo true || echo false)
+WAS_ABOVE=$([[ $(xprop -id "$WID" _NET_WM_STATE) == *_NET_WM_STATE_ABOVE* ]] && echo true || echo false)
 
 # Pick the preset (default first, so Enter takes it)
 if [ -z "${PRESET:-}" ]; then
   PRESET=$DEFAULT_PRESET
   if [ "$ASK_PRESET" = yes ]; then
-    PRESET=$(printf '%s\n' "${PRESETS[@]}" | awk -F'|' -v d="$DEFAULT_PRESET" \
-      '{l=sprintf("%-14s window %-10s video %s", $1, $2, $3)} $1==d{print l; next} {r=r l "\n"} END{printf "%s", r}' |
-      fzf --height=40% --reverse --prompt="Preset> " | cut -d' ' -f1) || exit 1
+    l=(); for p in "${PN[@]}"; do l+=("$(printf '%-14s window %-10s video %s' "$p" "${PW[$p]}" "${PV[$p]}")"); done
+    PRESET=$(pick Preset "$DEFAULT_PRESET" "${l[@]}") || exit 1
   fi
 fi
-spec=$(printf '%s\n' "${PRESETS[@]}" | grep -m1 "^$PRESET|") || die "no preset '$PRESET' in $CONF"
-IFS='|' read -r _ WIN OUTSZ <<<"$spec"
+[ -n "${PW[$PRESET]:-}" ] || die "no preset '$PRESET'. Presets: ${PN[*]}"
+WIN=${PW[$PRESET]} OUTSZ=${PV[$PRESET]}
 OW=${OUTSZ%x*} OH=${OUTSZ#*x}
 case $WIN in
   *:*) fit="const k = Math.floor(Math.min(a.width / ${WIN%:*}, a.height / ${WIN#*:}));
@@ -180,10 +291,8 @@ if [ -z "${AUDIO:-}" ]; then
   [ "$MIC" = yes ] && AUDIO=mic
   [ "$SYSTEM_AUDIO" = yes ] && { [ "$AUDIO" = mic ] && AUDIO=both || AUDIO=sys; }
   if [ "$ASK_AUDIO" = yes ] && [ -z "${RESIZE_ONLY:-}" ]; then
-    AUDIO=$(printf '%s\n' "mic   microphone only" "both  microphone + system sound" \
-      "sys   system sound only (apps, videos, music)" "none  no audio" |
-      awk -v d="$AUDIO" '$1==d{print; next} {r=r $0 "\n"} END{printf "%s", r}' |
-      fzf --height=40% --reverse --prompt="Audio> " | cut -d' ' -f1) || exit 1
+    AUDIO=$(pick Audio "$AUDIO" "mic   microphone only" "both  microphone + system sound" \
+      "sys   system sound only (apps, videos, music)" "none  no audio") || exit 1
   fi
 fi
 
@@ -215,7 +324,7 @@ OUT=${2:-$OUT_DIR/$app-$PRESET-$(date +%F-%H%M%S).$CONTAINER}
 mkdir -p "$(dirname "$OUT")"
 
 # thread_queue_size keeps audio from dropping when video encoding stalls
-mic=(-f pulse -thread_queue_size 1024 -i default)
+mic=(-f pulse -thread_queue_size 1024 -i "$MIC_DEVICE")
 sys=(-f pulse -thread_queue_size 1024 -i "$(pactl get-default-sink).monitor")
 ac=(-c:a aac -b:a "$AUDIO_BITRATE")
 # Inputs: 0 = window, then the audio sources in the order below
@@ -261,7 +370,7 @@ echo
 # ffmpeg writes key=value progress every 0.5 s; show it as one line that updates in place.
 start=$SECONDS
 ffmpeg -hide_banner -loglevel error -nostats -progress pipe:1 \
-  -f x11grab -framerate "$FPS" -draw_mouse "$SHOW_CURSOR" -window_id "$WID" -i "$DISPLAY" "${a[@]}" \
+  -f x11grab -framerate "$FPS" -draw_mouse "$([ "$SHOW_CURSOR" = yes ] && echo 1 || echo 0)" -window_id "$WID" -i "$DISPLAY" "${a[@]}" \
   "${am[@]}" -map 0:v \
   -vf "scale=$OW:$OH:flags=lanczos:force_original_aspect_ratio=decrease,pad=$OW:$OH:(ow-iw)/2:(oh-ih)/2,format=yuv420p" \
   "${v[@]}" "${ac[@]}" "$OUT" "${extra[@]}" |

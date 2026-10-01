@@ -77,7 +77,9 @@ srec -a both chrome        # audio: mic | sys | both | none
 srec -f 30 chrome          # frames per second
 srec chrome demo.mkv       # choose the output file
 srec -r chrome             # resize only, do not record
-srec -e                    # edit the config
+srec setup                 # choose your defaults step by step (runs on first start)
+srec config                # edit every setting
+srec config reset          # fresh config with all defaults (old one kept as .bak)
 srec -h                    # help
 ```
 
@@ -99,31 +101,41 @@ and set your panels to auto-hide.
 
 ## Config
 
-The first run creates `~/.config/simple-recorder/config` with comments. Open it with `srec -e`.
+`~/.config/simple-recorder/config`, in the `key = value` format that mpv, git and systemd use.
+The first start runs `srec setup`, which asks for the main choices and writes the file.
+The file holds every setting with its default, grouped as Basic and Advanced:
 
-```bash
-PRESETS=(
-  "youtube|16:9|1920x1080"
-  "shorts|9:16|1080x1920"
-  "mine|21:9|2560x1080"      # add your own: name|window|video
-)
-DEFAULT_PRESET=youtube
-ASK_PRESET=yes        # no: always use DEFAULT_PRESET
-FPS=60
-MIC=yes               # microphone
-SYSTEM_AUDIO=no       # sound your computer plays
-ASK_AUDIO=yes         # show the audio list each run
-SEPARATE_AUDIO=no     # yes: also save mic and system sound as their own .m4a files
-ENCODER=auto          # NVIDIA GPU if it works, else libx264 (CPU)
-QUALITY=18            # lower is better and bigger
-OUT_DIR=~/Videos/simple-recorder
-CONTAINER=mkv
-NO_BORDER=yes
-KEEP_ABOVE=yes        # no: only bring the window to the front
-RESTORE_AFTER=yes
+```ini
+## Basic
+default_preset = youtube             # preset used when you press Enter (default: youtube)
+ask_preset = yes                     # show the preset list each run (default: yes)
+fps = 60                             # frames per second (default: 60)
+mic = yes                            # record the microphone (default: yes)
+system_audio = no                    # record the sound your computer plays (default: no)
+ask_audio = yes                      # show the audio list each run (default: yes)
+out_dir = ~/Videos/simple-recorder   # where videos are saved (default: ~/Videos/simple-recorder)
+
+## Advanced (most people never change these)
+mic_device = default                 # default, or a source name (srec setup lists them)
+separate_audio = no                  # also save mic and system sound as their own .m4a files
+encoder = auto                       # auto, libx264 (CPU) or h264_nvenc (NVIDIA GPU)
+quality = 18                         # lower is better and bigger
+speed = veryfast                     # libx264 only
+audio_bitrate = 192k
+show_cursor = yes
+container = mkv                      # mkv, mp4 or mov
+no_border = yes                      # hide the title bar while recording
+keep_above = yes                     # keep the window on top while recording
+restore_after = yes                  # give both back when done
+
+## Presets
+[preset.mine]                        # add your own
+window = 21:9
+video  = 2560x1080
 ```
 
-Delete the file to get the defaults back.
+srec checks every line. An unknown setting, a bad value or a broken preset gives a warning with the
+line number, and srec uses the default for that value, so a typo never stops a recording.
 
 ## Smooth recording
 

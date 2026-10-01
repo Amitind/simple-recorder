@@ -16,8 +16,13 @@ and versions follow [Semantic Versioning](https://semver.org/).
   Colors turn off with `NO_COLOR` or when the output is not a terminal.
 - Start-up check: lists every missing tool at once, why it is needed, and the install command
   for Fedora, Debian/Ubuntu or Arch.
-- Config file at `~/.config/simple-recorder/config`, created on first run. Built-in defaults
-  fill any setting the config leaves out.
+- Config file at `~/.config/simple-recorder/config` in `key = value` format with `[preset.NAME]`
+  sections. Every setting is listed with its default, grouped Basic and Advanced. Unknown
+  settings, bad values and broken presets give a warning with the line number.
+- `srec setup`: step-by-step choice of preset, audio, microphone, fps, separate audio and folder.
+  Runs on first start.
+- `srec config` opens the config; `srec config reset` writes a fresh one and keeps the old as `.bak`.
+- `mic_device`: record a chosen microphone instead of the system default.
 - Window border and on-top state are restored after recording.
 - Encoders: `ENCODER=auto` (default) uses h264_nvenc (NVIDIA GPU) when it works, else libx264 (CPU).
 - `SEPARATE_AUDIO=yes` also saves the mic and the system sound as their own `.m4a` files (off by default).
