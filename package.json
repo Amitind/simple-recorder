@@ -6,11 +6,30 @@
     "srec": "srec",
     "simple-recorder": "srec"
   },
-  "files": ["srec"],
-  "os": ["linux"],
-  "keywords": ["screen-recorder", "ffmpeg", "kde", "kwin", "x11", "youtube", "shorts", "screencast"],
-  "repository": { "type": "git", "url": "git+https://github.com/Amitind/simple-recorder.git" },
+  "files": [
+    "srec"
+  ],
+  "os": [
+    "linux"
+  ],
+  "keywords": [
+    "screen-recorder",
+    "ffmpeg",
+    "kde",
+    "kwin",
+    "x11",
+    "youtube",
+    "shorts",
+    "screencast"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Amitind/simple-recorder.git"
+  },
   "homepage": "https://github.com/Amitind/simple-recorder#readme",
   "author": "Amit Yadav",
-  "license": "MIT"
+  "license": "MIT",
+  "scripts": {
+    "version": "sed -i \"s/^VERSION=.*/VERSION=$npm_package_version/\" srec && git add srec"
+  }
 }

@@ -15,7 +15,7 @@ Usage: srec [options] [app] [output-file]
 
 Options:
   -p NAME   preset (see config). Leave out to pick from a list.
-  -a MODE   audio: mic | sys | both | none
+  -a MODE   audio: mic | sys | both | none (sys is the sound your computer plays)
   -f FPS    frames per second
   -r        resize the window only, do not record
   -e        open the config file in \$EDITOR
@@ -26,7 +26,9 @@ EOF
 }
 
 default_config() { cat <<'EOF'
-# simple-recorder config (bash syntax). Delete this file to get the defaults back.
+# simple-recorder config (bash syntax).
+# Every setting has a built-in default. Keep only the lines you change, or delete this
+# file to get a fresh copy with all defaults.
 
 # Presets: "name|window|output"
 #   window: a ratio like 16:9 (largest window of that shape that fits the screen)
@@ -45,7 +47,11 @@ DEFAULT_PRESET=youtube
 ASK_PRESET=yes        # yes: show the preset list each run (Enter picks the default)
 
 FPS=60
-AUDIO=mic             # mic | sys (what you hear) | both | none
+
+# Audio: the mic and the system sound (what you hear: app, video, music) are separate.
+MIC=yes               # record the default microphone
+SYSTEM_AUDIO=no       # record the sound your computer plays
+ASK_AUDIO=yes         # yes: show the audio list each run (Enter picks the settings above)
 ENCODER=libx264       # libx264 (CPU) | h264_nvenc (NVIDIA GPU, less CPU)
 QUALITY=18            # lower is better and bigger (CRF for libx264, CQ for nvenc)
 SPEED=veryfast        # libx264 preset: ultrafast ... veryslow
@@ -64,6 +70,10 @@ EOF
 
 die() { echo "srec: $*" >&2; exit 1; }
 
+# Built-in defaults first, then the user's config on top, so a config from an older
+# version still works when a new setting is added.
+# shellcheck source=/dev/null
+source <(default_config)
 if [ ! -f "$CONF" ]; then
   mkdir -p "$(dirname "$CONF")"; default_config > "$CONF"
   echo "Created config with defaults: $CONF"
@@ -72,7 +82,7 @@ fi
 source "$CONF"
 
 while getopts "p:a:f:rehv" o; do case $o in
-  p) PRESET=$OPTARG ;; a) AUDIO=$OPTARG ;; f) FPS=$OPTARG ;; r) RESIZE_ONLY=1 ;;
+  p) PRESET=$OPTARG ;; a) AUDIO=$OPTARG ASK_AUDIO=no ;; f) FPS=$OPTARG ;; r) RESIZE_ONLY=1 ;;
   e) exec "${EDITOR:-nano}" "$CONF" ;; v) echo "$VERSION"; exit 0 ;;
   h) usage; exit 0 ;; *) usage >&2; exit 1 ;;
 esac; done; shift $((OPTIND - 1))
@@ -115,6 +125,19 @@ case $WIN in
   *x*) fit="const W = Math.min(${WIN%x*}, a.width), H = Math.min(${WIN#*x}, a.height);" ;;
   *) die "preset '$PRESET': window must look like 16:9 or 1920x1080" ;;
 esac
+
+# Pick the audio: config switches give the default, -a or the list can change it
+if [ -z "${AUDIO:-}" ]; then
+  AUDIO=none
+  [ "$MIC" = yes ] && AUDIO=mic
+  [ "$SYSTEM_AUDIO" = yes ] && { [ "$AUDIO" = mic ] && AUDIO=both || AUDIO=sys; }
+  if [ "$ASK_AUDIO" = yes ] && [ -z "${RESIZE_ONLY:-}" ]; then
+    AUDIO=$(printf '%s\n' "mic   microphone only" "both  microphone + system sound" \
+      "sys   system sound only (apps, videos, music)" "none  no audio" |
+      awk -v d="$AUDIO" '$1==d{print; next} {r=r $0 "\n"} END{printf "%s", r}' |
+      fzf --height=40% --reverse --prompt="Audio> " | cut -d' ' -f1) || exit 1
+  fi
+fi
 echo "Window: $CLS | $CAP"
 echo "Preset: $PRESET (window $WIN, video ${OW}x${OH}, ${FPS}fps, audio $AUDIO)"
 
@@ -162,8 +185,20 @@ case $ENCODER in
   *) die "ENCODER must be libx264 or h264_nvenc" ;;
 esac
 
-echo "Recording to $OUT  (press q to stop)"
-ffmpeg -hide_banner -loglevel warning -stats \
+echo "Recording to $OUT"
+echo "Press q to stop."
+# ffmpeg writes key=value progress every 0.5 s; show it as one line that updates in place.
+ffmpeg -hide_banner -loglevel error -nostats -progress pipe:1 \
   -f x11grab -framerate "$FPS" -draw_mouse "$SHOW_CURSOR" -window_id "$WID" -i "$DISPLAY" "${a[@]}" "${af[@]}" \
   -vf "scale=$OW:$OH:flags=lanczos:force_original_aspect_ratio=decrease,pad=$OW:$OH:(ow-iw)/2:(oh-ih)/2,format=yuv420p" \
-  "${v[@]}" "${ac[@]}" "$OUT"
+  "${v[@]}" "${ac[@]}" "$OUT" |
+{ trap '' INT  # Ctrl-C stops ffmpeg cleanly, like q; this loop keeps reading until ffmpeg is done
+while IFS='=' read -r k val; do case $k in
+  frame) frames=$val ;; fps) fps=$val ;; drop_frames) drop=$val ;; speed) speed=${val// /} ;;
+  total_size) [ "$val" = N/A ] || size=$(numfmt --to=iec --suffix=B "$val") ;;
+  out_time) t=${val%.*} ;;
+  progress) printf '\r\033[K\033[31m●\033[0m REC %s  %s  %s fps  %s frames  %s dropped  %s' \
+    "${t:-00:00:00}" "${size:-0B}" "${fps:-0}" "${frames:-0}" "${drop:-0}" "${speed:-}" ;;
+esac; done; } || true  # ffmpeg exits 255 on Ctrl-C; the file is still complete
+echo
+[ -f "$OUT" ] && echo "Saved $OUT ($(du -h "$OUT" | cut -f1))"
