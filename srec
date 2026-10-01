@@ -360,6 +360,9 @@ kwin "w.minimized = false; w.setMaximize(false, false); w.fullScreen = false;
 app=$(tr 'A-Z. ' 'a-z--' <<<"$CLS")
 OUT=${2:-$OUT_DIR/$app-$PRESET-$(date +%F-%H%M%S).$CONTAINER}
 mkdir -p "$(dirname "$OUT")"
+# Never overwrite: demo.mkv exists, so record to demo-2.mkv (then -3 ...)
+num=1 base=${OUT%.*} ext=${OUT##*.}
+while [ -e "$OUT" ]; do num=$((num + 1)) OUT=$base-$num.$ext; done
 
 # thread_queue_size keeps audio from dropping when video encoding stalls
 mic=(-f pulse -thread_queue_size 1024 -i "$MIC_DEVICE")

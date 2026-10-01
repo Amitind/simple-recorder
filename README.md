@@ -47,6 +47,8 @@ curl -fLo ~/.local/bin/srec https://raw.githubusercontent.com/Amitind/simple-rec
 chmod +x ~/.local/bin/srec
 ```
 
+Fedora RPM: build it yourself or publish it on COPR, see [packaging/README.md](packaging/README.md).
+
 ## What you need
 
 | Need | Why | Fedora | Debian, Ubuntu | Arch |
@@ -80,7 +82,7 @@ srec chrome                # window by class or title
 srec -p shorts discord     # preset by name, no list
 srec -a both chrome        # audio: mic | sys | both | none
 srec -f 30 chrome          # frames per second
-srec chrome demo.mkv       # choose the output file
+srec chrome demo.mkv       # choose the output file (demo-2.mkv if it exists)
 srec -r chrome             # resize only, do not record
 srec setup                 # choose your defaults step by step (runs on first start)
 srec config                # edit every setting

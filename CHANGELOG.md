@@ -6,6 +6,8 @@ and versions follow [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-01
+
 ### Added
 - `srec` and `simple-recorder` commands: fit an app window to a video shape and record it.
 - Window picker: match by app name or title, or pick from a list (fzf).
@@ -29,5 +31,10 @@ and versions follow [Semantic Versioning](https://semver.org/).
 - Logo, icon and social preview image in `marketing/` (SVG and PNG, light and dark).
 - `mic_device`: record a chosen microphone instead of the system default.
 - Window border and on-top state are restored after recording.
+- An output file that already exists is never overwritten: srec records to `name-2.mkv` instead.
+- Fedora RPM spec in `packaging/` (build it yourself, or from COPR).
 - Encoders: `ENCODER=auto` (default) uses h264_nvenc (NVIDIA GPU) when it works, else libx264 (CPU).
 - `SEPARATE_AUDIO=yes` also saves the mic and the system sound as their own `.m4a` files (off by default).
+
+[Unreleased]: https://github.com/Amitind/simple-recorder/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/Amitind/simple-recorder/releases/tag/v0.1.0
